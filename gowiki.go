@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"regexp"
-	"strings"
 )
 
 // main page struct - basic element
@@ -39,44 +38,31 @@ func (p *Page) saveBackup() error {
 
 //TESTwise func save clone /w DB implementation
 // output: error - nil when no problem occurred
-//IDEA: refactor to try UPDATE first, then INSERT
 func (p *Page) save() error {
-	saveStmt, err := db.Prepare("INSERT pages SET title=?,body=?")
+	updateStmt, err := db.Prepare("UPDATE pages SET body=? WHERE title=?")
 	//checkErr(err) not sufficient, need err as return
 	if err != nil {
 		return err
 	}
-	_, err = saveStmt.Exec(p.Title, p.Body)
+	res, err := updateStmt.Exec(p.Body, p.Title)
 	if err != nil {
-		//1st test suggests: UPDATE here after error check instead of RowsAffected()
-		if strings.Contains(err.Error(), "Duplicate entry") {
-			updateStmt, err := db.Prepare("UPDATE pages SET body=? WHERE title=?")
-			if err != nil {
-				return err
-			}
-			_, err = updateStmt.Exec(p.Body, p.Title)
-			if err != nil {
-				return err
-			}
-		}
-
 		return err
 	}
-
-	//check error, if entry already exists exec update with body's value
-	//QUESTION STILL IS: does it work with affected? or does it throw an error before?
-	/*affected, err := res.RowsAffected()
-	if affected == 0 {
-		//this should be the UPDATE case
-		updateStmt, err := db.Prepare("UPDATE pages SET body=? WHERE title=?")
+	aff, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if aff == 0 {
+		// 0 rows affected = doesn't exist, therefore INSERT
+		saveStmt, err := db.Prepare("INSERT pages SET title=?,body=?")
 		if err != nil {
 			return err
 		}
-		res, err = updateStmt.Exec(p.Body, p.Title)
+		_, err = saveStmt.Exec(p.Title, p.Body)
 		if err != nil {
 			return err
 		}
-	}*/
+	}
 
 	return err
 	//ToDo: make statements globally prepared. how handle err?
@@ -108,7 +94,7 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/view/FrontPage", http.StatusFound)
 }
 
-// ???
+//
 func makeHandler(fn func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		m := validPath.FindStringSubmatch(r.URL.Path)
